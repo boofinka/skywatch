@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SkyWatch</title>
+</head>
+<body>
+    <h1>SkyWatch Weather App</h1>
+
+    <form method="POST">
+        <input
+            type="text"
+            name="city"
+            placeholder="Enter city"
+            required
+        >
+
+        <button type="submit">
+            Get Weather
+        </button>
+    </form>
+
+    {% if weather %}
+    <h2>Weather Result</h2>
+
+    <p>
+        <strong>City:</strong>
+        {{ weather.city }}
+    </p>
+
+    <p>
+        <strong>Temperature:</strong>
+        {{ weather.temperature }} °C
+    </p>
+
+    <p>
+        <strong>Wind Speed:</strong>
+        {{ weather.windspeed }} km/h
+    </p>
+    {% endif %}
+
+    {% if error %}
+    <p style="color:red;">
+        {{ error }}
+    </p>
+    {% endif %}
+</body>
+</html>
