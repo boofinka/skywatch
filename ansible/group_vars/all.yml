@@ -1,1 +1,5 @@
 k3s_version: v1.31.4+k3s1
+
+k3s_server_ip: 192.168.0.152
+
+k3s_token: "K10d1bdd5219e16158a33f9e22292e0167e35c3a370d917dc6f61a7e68f506bf4f0::server:825eb5509dfdd4389d2956cfe7bf4e5b"

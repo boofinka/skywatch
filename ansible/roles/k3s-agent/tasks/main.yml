@@ -1,0 +1,15 @@
+---
+- name: Check if K3s agent is already installed
+  stat:
+    path: /usr/local/bin/k3s-agent
+  register: k3s_agent_binary
+
+- name: Install K3s agent
+  shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    K3S_URL=https://{{ k3s_server_ip }}:6443 \
+    K3S_TOKEN={{ k3s_token }} \
+    sh -
+  become: true
+  when: not k3s_agent_binary.stat.exists

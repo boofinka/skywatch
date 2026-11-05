@@ -1,0 +1,15 @@
+---
+- name: Check if K3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Install K3s server
+  shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    sh -s - server \
+      --node-ip={{ k3s_server_ip }} \
+      --advertise-address={{ k3s_server_ip }}
+  become: true
+  when: not k3s_binary.stat.exists
