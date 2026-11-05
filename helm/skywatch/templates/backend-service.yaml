@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: skywatch-backend
+spec:
+  selector:
+    app: skywatch-backend
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: {{ .Values.backend.service.type }}

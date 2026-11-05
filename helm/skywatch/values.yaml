@@ -1,0 +1,30 @@
+frontend:
+  replicaCount: 1
+
+  image:
+    repository: docker.io/library/skywatch-frontend
+    tag: local
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+backend:
+  replicaCount: 1
+
+  image:
+    repository: docker.io/library/skywatch-backend
+    tag: local
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+ingress:
+  enabled: true
+  className: traefik
+  host: skywatch.local
+
+backendUrl: http://skywatch-backend:5000
