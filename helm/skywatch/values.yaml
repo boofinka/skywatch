@@ -1,5 +1,5 @@
 frontend:
-  replicaCount: 1
+  replicaCount: 2
   image:
     repository: ghcr.io/boofinka/skywatch-frontend
     tag: 8fd40fdbe535e13f8b52f9be6ac16139d263459c
@@ -8,7 +8,7 @@ frontend:
     type: ClusterIP
     port: 80
 backend:
-  replicaCount: 1
+  replicaCount: 2
   image:
     repository: ghcr.io/boofinka/skywatch-backend
     tag: 8fd40fdbe535e13f8b52f9be6ac16139d263459c
