@@ -2,7 +2,7 @@ frontend:
   replicaCount: 2
   image:
     repository: ghcr.io/boofinka/skywatch-frontend
-    tag: 8fd40fdbe535e13f8b52f9be6ac16139d263459c
+    tag: 8b0ed934c418733cdacf176f9426bc84e3faf110
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -11,7 +11,7 @@ backend:
   replicaCount: 2
   image:
     repository: ghcr.io/boofinka/skywatch-backend
-    tag: 8fd40fdbe535e13f8b52f9be6ac16139d263459c
+    tag: 8b0ed934c418733cdacf176f9426bc84e3faf110
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
