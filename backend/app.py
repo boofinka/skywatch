@@ -93,7 +93,7 @@ def weather():
         app.logger.error(f"Open-Meteo request failed: {str(e)}")
         return jsonify({"error": "weather provider unavailable"}), 503
 
-    except Exception as e:
+    except Exception:
         app.logger.exception("Unexpected error occurred")
         return jsonify({"error": "internal server error"}), 500
 
