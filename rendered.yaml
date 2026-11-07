@@ -1,0 +1,166 @@
+---
+# Source: skywatch/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skywatch-config
+data:
+  BACKEND_URL: "http://skywatch-backend:5000"
+---
+# Source: skywatch/templates/backend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: skywatch-backend
+spec:
+  selector:
+    app: skywatch-backend
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+# Source: skywatch/templates/frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: skywatch-frontend
+spec:
+  selector:
+    app: skywatch-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+# Source: skywatch/templates/backend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywatch-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: skywatch-backend
+  template:
+    metadata:
+      labels:
+        app: skywatch-backend
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: backend
+          image: "ghcr.io/boofinka/skywatch-backend:8fd40fdbe535e13f8b52f9be6ac16139d263459c"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 5000
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+# Source: skywatch/templates/frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywatch-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: skywatch-frontend
+  template:
+    metadata:
+      labels:
+        app: skywatch-frontend
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: frontend
+          image: "ghcr.io/boofinka/skywatch-frontend:8fd40fdbe535e13f8b52f9be6ac16139d263459c"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 8080
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+
+          env:
+            - name: BACKEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: skywatch-config
+                  key: BACKEND_URL
+---
+# Source: skywatch/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: skywatch-ingress
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: skywatch.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: skywatch-frontend
+                port:
+                  number: 80
