@@ -43,9 +43,11 @@ def index():
         error=error
     )
 
+
 @app.route("/health")
 def health():
     return {"status": "healthy"}, 200
+
 
 if __name__ == "__main__":
     app.run(
