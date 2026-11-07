@@ -2,8 +2,8 @@ frontend:
   replicaCount: 1
 
   image:
-    repository: docker.io/library/skywatch-frontend
-    tag: local
+    repository: ghcr.io/boofinka/skywatch-frontend
+    tag: latest
     pullPolicy: IfNotPresent
 
   service:
@@ -14,8 +14,8 @@ backend:
   replicaCount: 1
 
   image:
-    repository: docker.io/library/skywatch-backend
-    tag: local
+    repository: ghcr.io/boofinka/skywatch-backend
+    tag: latest
     pullPolicy: IfNotPresent
 
   service:
