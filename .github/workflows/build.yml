@@ -46,3 +46,20 @@ jobs:
         run: |
           docker push \
             ghcr.io/boofinka/skywatch-frontend:${{ github.sha }}
+      - name: Push frontend
+        run: |
+          docker push \
+            ghcr.io/boofinka/skywatch-frontend:${{ github.sha }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update Helm image tags
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          yq -i '.frontend.image.tag = env(IMAGE_TAG)' helm/skywatch/values.yaml
+          yq -i '.backend.image.tag = env(IMAGE_TAG)' helm/skywatch/values.yaml
