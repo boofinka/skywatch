@@ -807,3 +807,9 @@ This project demonstrated the practical integration of:
 while highlighting real-world operational challenges involving networking, node health, GitOps workflows, and infrastructure automation.
 
 The most important lesson was that automation and reproducibility are often more valuable than manual fixes. Dynamic inventory, Infrastructure-as-Code, and GitOps practices significantly reduced operational effort and improved maintainability throughout the project.
+
+<img width="1458" height="725" alt="skywatch_ingress" src="https://github.com/user-attachments/assets/c4b00449-ca57-406a-b9af-a64ff55238c3" />
+
+<img width="1605" height="1029" alt="argocd_3" src="https://github.com/user-attachments/assets/3852dfd0-009c-45a0-90bd-e2b7c30cd4ed" />
+<img width="2553" height="1360" alt="argocd_2" src="https://github.com/user-attachments/assets/15ffca13-b7d9-4e2d-a59f-cab96100817f" />
+<img width="2558" height="1342" alt="argocd" src="https://github.com/user-attachments/assets/4f39fa11-29f5-4e49-9e88-8a8be75af5ec" />
