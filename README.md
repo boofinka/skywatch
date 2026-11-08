@@ -11,6 +11,8 @@ SkyWatch is a microservices-based weather application demonstrating modern cloud
 * **CI/CD**: GitHub Actions automated pipeline (linting, image builds, GHCR push, Helm values updates)
 * **Infrastructure as Code**: Terraform bootstrap for GitOps & Kubernetes manifests
 
+I chose to go with path A, the recommended one.
+
 ---
 
 ## Architecture Overview
@@ -433,3 +435,375 @@ curl http://localhost:8080/health
   ```bash
   kubectl run net-test --rm -it --image=curlimages/curl -- curl -I https://api.open-meteo.com
   ```
+
+# Challenges, Solutions, and Future Improvements
+
+## 1. Problems We Ran Into and How We Solved Them
+
+### 1. K3s Version Compatibility Issues
+
+**Problem**
+
+The latest K3s release introduced networking and stability issues that affected node communication and application deployment.
+
+**Solution**
+
+We pinned the cluster to a known stable version:
+
+```yaml
+k3s_version: v1.31.4+k3s1
+```
+
+This ensured all cluster nodes used the same tested Kubernetes distribution and significantly improved stability.
+
+---
+
+### 2. K3s Cluster Join Authentication
+
+**Problem**
+
+Worker nodes were initially configured to join the cluster using a predefined token. During review, we identified that the control plane could generate its own token, creating a risk of authentication mismatches and `401 Unauthorized` errors during node joins.
+
+**Solution**
+
+We redesigned the process to use a dynamically generated token:
+
+1. K3s server generates the cluster join token.
+2. Ansible reads the token from:
+
+```text
+/var/lib/rancher/k3s/server/node-token
+```
+
+3. The token is distributed automatically to worker nodes through Ansible variables.
+
+This removed hardcoded secrets and created a more reliable join process.
+
+---
+
+### 3. Hardcoded Infrastructure Configuration
+
+**Problem**
+
+The original implementation required manually maintaining:
+
+- Control plane IP addresses
+- Worker node IP addresses
+- Ansible inventory files
+
+Whenever a VM was recreated, inventory files had to be updated manually.
+
+**Solution**
+
+We implemented a custom Ansible Dynamic Inventory using Multipass.
+
+The inventory script:
+
+```bash
+multipass list --format json
+```
+
+automatically discovers:
+
+- Control plane node
+- Worker nodes
+- IP addresses
+
+and generates Ansible groups dynamically.
+
+Benefits:
+
+- No hardcoded node IP addresses
+- No inventory drift
+- Simplified node replacement
+
+---
+
+### 4. ArgoCD Synchronization Problems
+
+**Problem**
+
+ArgoCD reported:
+
+```text
+Sync Status: Unknown
+```
+
+and generated networking-related errors:
+
+```text
+no route to host
+```
+
+This prevented automatic application synchronization.
+
+**Solution**
+
+The issue was traced to cluster networking problems between nodes rather than an ArgoCD configuration error.
+
+To validate Helm and application changes independently of ArgoCD, deployments were tested using:
+
+```bash
+helm upgrade
+```
+
+while the underlying networking issues were investigated.
+
+---
+
+### 5. Application Scheduling on the Control Plane
+
+**Problem**
+
+Initially, application workloads were allowed to run on the control-plane node.
+
+This violated the requirement:
+
+> No application workloads are scheduled on the control plane.
+
+**Solution**
+
+We implemented Kubernetes node affinity within the Helm chart:
+
+```yaml
+nodeAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    nodeSelectorTerms:
+      - matchExpressions:
+          - key: node-role.kubernetes.io/control-plane
+            operator: DoesNotExist
+```
+
+Validation showed newly created frontend and backend pods were scheduled only on worker nodes.
+
+---
+
+### 6. GitHub Actions Push Conflicts
+
+**Problem**
+
+Git pushes were occasionally rejected because GitHub Actions automatically updated Helm values and pushed commits back to the repository.
+
+Typical error:
+
+```text
+[rejected] main -> main (fetch first)
+```
+
+**Solution**
+
+The workflow was modified to use:
+
+```text
+[skip ci]
+```
+
+for automated commits, and local development workflow was adjusted to use:
+
+```bash
+git pull --rebase
+```
+
+before pushing.
+
+---
+
+### 7. Container Image Distribution Issues
+
+**Problem**
+
+Some pods remained stuck in:
+
+```text
+ContainerCreating
+```
+
+while pulling images from GitHub Container Registry (GHCR).
+
+**Solution**
+
+Image availability was verified manually:
+
+```bash
+docker pull ghcr.io/boofinka/skywatch-backend:<tag>
+```
+
+This confirmed image publication was functioning correctly and helped isolate the issue to node-level cluster problems rather than CI/CD failures.
+
+---
+
+### 8. Worker Node Failure
+
+**Problem**
+
+One Kubernetes worker node became unhealthy and entered the state:
+
+```text
+NotReady
+```
+
+Affected symptoms included:
+
+- Failed container creation
+- Image pull problems
+- ArgoCD pod failures
+- Kubernetes scheduling issues
+
+Error examples:
+
+```text
+CreateContainerConfigError
+```
+
+```text
+read-only file system
+```
+
+**Solution**
+
+The node was cordoned and drained:
+
+```bash
+kubectl drain skywatch-worker1
+```
+
+The design of the infrastructure was improved so failed worker nodes can be recreated and rejoined automatically through:
+
+- Dynamic inventory
+- Ansible automation
+- K3s auto-registration
+
+---
+
+## 2. What We Would Improve with More Time
+
+### 1. Fully Resolve Cluster Networking Issues
+
+The largest remaining issue involves intermittent networking failures between nodes.
+
+Future work would include:
+
+- Deep analysis of Flannel networking
+- Verification of inter-node routing
+- Troubleshooting ArgoCD communication failures
+- Validation of Kubernetes DNS stability
+
+---
+
+### 2. Complete Terraform-Based Infrastructure Provisioning
+
+Terraform was introduced as a bonus objective to bootstrap:
+
+- ArgoCD namespace
+- ArgoCD Helm deployment
+- ArgoCD Application resources
+
+With more time, Terraform would also provision:
+
+- Multipass virtual machines
+- Network configuration
+- Kubernetes bootstrap process
+
+to create a fully declarative infrastructure workflow.
+
+---
+
+### 3. Improve High Availability
+
+The current cluster uses a single control plane.
+
+Future improvements could include:
+
+- Multiple control-plane nodes
+- External datastore
+- Automated failover
+
+to improve resilience.
+
+---
+
+### 4. Add Monitoring and Observability
+
+Future versions would include:
+
+- Prometheus
+- Grafana
+- Alertmanager
+
+to monitor:
+
+- Cluster health
+- Pod status
+- Application performance
+- Resource utilization
+
+---
+
+### 5. Secure Secrets Management
+
+The project currently avoids storing sensitive runtime credentials, but a production implementation would benefit from:
+
+- Kubernetes Secrets
+- HashiCorp Vault
+- Sealed Secrets
+- External Secret Operators
+
+for secure secret distribution.
+
+---
+
+### 6. Improve Deployment Strategy
+
+Future deployments could use:
+
+- Canary deployments
+- Blue/Green deployments
+- Progressive delivery
+
+through ArgoCD Rollouts to minimize deployment risk.
+
+---
+
+### 7. Expand Automation
+
+Additional automation opportunities include:
+
+- Automatic node replacement
+- Automated backups
+- Cluster recovery workflows
+- Disaster recovery testing
+
+---
+
+### 8. Production-Grade Dynamic Inventory
+
+The custom Multipass inventory significantly improved maintainability.
+
+Future improvements could include:
+
+- Multipass metadata support
+- Automatic role assignments
+- Terraform-generated inventory
+- Cloud provider inventory plugins
+
+to support larger-scale environments.
+
+---
+
+## Key Lessons Learned
+
+This project demonstrated the practical integration of:
+
+- Kubernetes
+- K3s
+- Docker
+- Helm
+- GitHub Actions
+- GitHub Container Registry
+- ArgoCD
+- Terraform
+- Ansible
+
+while highlighting real-world operational challenges involving networking, node health, GitOps workflows, and infrastructure automation.
+
+The most important lesson was that automation and reproducibility are often more valuable than manual fixes. Dynamic inventory, Infrastructure-as-Code, and GitOps practices significantly reduced operational effort and improved maintainability throughout the project.
