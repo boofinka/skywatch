@@ -18,7 +18,7 @@ def health():
 
 @app.route("/weather", methods=["GET"])
 def weather():
-    city = request.args.get("city")
+    city = request.args.get("city", "").strip()
 
     if not city:
         app.logger.warning("Weather request received without city parameter")
@@ -61,7 +61,7 @@ def weather():
             params={
                 "latitude": latitude,
                 "longitude": longitude,
-                "current_weather": True
+                "current": "temperature_2m,wind_speed_10m"
             },
             timeout=15
         )
@@ -69,18 +69,36 @@ def weather():
         weather_response.raise_for_status()
         weather_data = weather_response.json()
 
-        current_weather = weather_data.get("current_weather")
+        current = (
+            weather_data.get("current")
+            or weather_data.get("current_weather")
+        )
 
-        if not current_weather:
+        if not current:
             app.logger.error(
                 f"No weather data returned for city: {city_name}"
             )
             return jsonify({"error": "weather data unavailable"}), 500
 
+        temperature = current.get(
+            "temperature_2m",
+            current.get("temperature")
+        )
+        windspeed = current.get(
+            "wind_speed_10m",
+            current.get("windspeed")
+        )
+
+        if temperature is None or windspeed is None:
+            app.logger.error(
+                f"Incomplete weather metrics for city: {city_name}"
+            )
+            return jsonify({"error": "weather data unavailable"}), 500
+
         result = {
             "city": city_name,
-            "temperature": current_weather["temperature"],
-            "windspeed": current_weather["windspeed"]
+            "temperature": temperature,
+            "windspeed": windspeed
         }
 
         app.logger.info(

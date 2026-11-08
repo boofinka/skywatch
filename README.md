@@ -356,8 +356,6 @@ Running
 Apply:
 
 ```bash
-kubectl apply -f argocd/project.yaml
-
 kubectl apply -f argocd/application.yaml
 ```
 

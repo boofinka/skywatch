@@ -29,10 +29,11 @@ def index():
             if response.status_code == 200:
                 weather = response.json()
             else:
-                error = response.json().get(
-                    "error",
-                    "Unknown error"
-                )
+                try:
+                    data = response.json()
+                    error = data.get("error", f"HTTP {response.status_code} error")
+                except ValueError:
+                    error = f"Service unavailable (HTTP {response.status_code})"
 
         except Exception as e:
             error = str(e)
