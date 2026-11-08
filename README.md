@@ -129,7 +129,7 @@ Run:
 cd ansible
 
 ansible-playbook \
-  -i inventories/hosts.yml \
+  -i inventories/multipass.py \
   playbooks/site.yml
 ```
 
@@ -143,6 +143,29 @@ The playbook:
 ```yaml
 k3s_version: v1.31.4+k3s1
 ```
+
+### Dynamic Inventory
+
+The project uses a custom Ansible dynamic inventory:
+
+```text
+ansible/inventories/multipass.py
+```
+
+Instead of maintaining static host IP addresses in an inventory file, the script queries Multipass directly:
+
+```bash
+multipass list --format json
+```
+
+and automatically generates:
+
+- k3s_server group
+- k3s_agents group
+- host variables
+- VM IP addresses
+
+This eliminates inventory drift and removes the need to manually update IP addresses when VMs are recreated.
 
 ---
 
