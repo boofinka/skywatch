@@ -1,609 +1,435 @@
-SkyWatch
-A simple distributed weather application demonstrating:
+# SkyWatch - Cloud-Native Weather Application
 
-* Flask frontend
-* Flask backend
-* Docker
-* K3s
-* Ansible
-* Helm
-* ArgoCD
-* GitHub Actions
+SkyWatch is a microservices-based weather application demonstrating modern cloud-native architecture, automated infrastructure provisioning with dynamic inventory, container orchestration, and continuous GitOps delivery:
 
-# SkyWatch - Installation & Deployment Guide
-
-## Overview
-
-SkyWatch is a cloud-native weather application consisting of:
-
-- Frontend (Flask web UI)
-- Backend (Flask REST API)
-- K3s Kubernetes cluster
-- Helm deployment
-- GitHub Actions CI/CD
-- GitHub Container Registry (GHCR)
-- ArgoCD GitOps
-- Terraform (bonus: GitOps bootstrap)
+* **Microservices**: Flask Frontend (UI) & Flask Backend (REST API)
+* **Containers**: Docker with multi-stage considerations & GHCR publishing
+* **Infrastructure**: K3s multi-node Kubernetes running on Ubuntu VMs via Multipass
+* **Dynamic Configuration Management**: Ansible dynamic inventory ([`multipass.py`](ansible/inventories/multipass.py)) with zero hardcoded IPs or join secrets
+* **Packaging**: Helm 3 chart with templates for Deployments, Services, ConfigMaps, and Ingress
+* **GitOps**: ArgoCD automated continuous deployment with self-healing
+* **CI/CD**: GitHub Actions automated pipeline (linting, image builds, GHCR push, Helm values updates)
+* **Infrastructure as Code**: Terraform bootstrap for GitOps & Kubernetes manifests
 
 ---
 
-# Prerequisites
+## Architecture Overview
 
-## Workstation
+```text
+                           [ End User Browser ]
+                                     │
+                                     ▼  http://skywatch.local
+                       [ Traefik Ingress Controller ]
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 │                                       │
+                 ▼ (port 80)                             ▼ (optional argocd.local)
+     [ Frontend Service (ClusterIP) ]            [ ArgoCD Server Service ]
+                 │
+                 ▼ (port 8080)
+      [ Frontend Pods (Flask UI) ]
+                 │
+                 ▼  http://skywatch-backend:5000/weather?city=...
+      [ Backend Service (ClusterIP) ]
+                 │
+                 ▼ (port 5000)
+    [ Backend Pods (Flask REST API) ]
+                 │
+                 ▼  HTTPS (Geocoding & Forecast)
+         [ Open-Meteo Public API ]
+```
 
-Install:
+### Components & Ports
 
-- Git
-- Docker
-- kubectl
-- Helm
-- Terraform
-- Ansible
-- Multipass (or equivalent VM solution)
+| Component | Technology | Container Port | Service Port | Primary Endpoints |
+|-----------|------------|----------------|--------------|-------------------|
+| **Frontend** | Flask 3, Gunicorn | `8080` | `80` (ClusterIP) | `/` (Web UI), `/health` |
+| **Backend** | Flask 3, Gunicorn | `5000` | `5000` (ClusterIP) | `/weather?city=<name>`, `/health` |
+| **Ingress** | Traefik (K3s default)| — | `80` / `443` | Host: `skywatch.local` |
+| **GitOps** | ArgoCD | `8080` | `80` / `443` | Host: `argocd.local` |
 
-Verify:
+---
 
-```bash
-git --version
-docker --version
-kubectl version --client
-helm version
-terraform version
-ansible --version
+## Repository Structure
+
+```text
+.
+├── .github/workflows/
+│   └── build.yml               # GitHub Actions CI/CD workflow
+├── ansible/
+│   ├── ansible.cfg             # Configured with dynamic inventory = inventories/multipass.py
+│   ├── group_vars/
+│   │   └── all.yml             # Global variables (k3s_version only - no hardcoded IPs/secrets)
+│   ├── inventories/
+│   │   └── multipass.py        # Dynamic inventory querying Multipass instances & IPs
+│   ├── playbooks/
+│   │   └── site.yml            # Main cluster orchestration playbook
+│   └── roles/
+│       ├── k3s-server/         # Control plane install & dynamic token export
+│       ├── k3s-agent/          # Worker node install & dynamic cluster join
+│       └── common/             # Common prerequisites
+├── argocd/
+│   ├── application.yaml        # ArgoCD Application manifest for skywatch
+│   ├── argocd-ingress.yaml     # Traefik ingress for ArgoCD Web UI
+│   └── project.yaml            # ArgoCD Project definition
+├── backend/
+│   ├── app.py                  # Flask REST API connecting to Open-Meteo
+│   ├── Dockerfile              # Python 3.12-slim container image
+│   └── requirements.txt        # Backend dependencies (Flask, requests, gunicorn)
+├── frontend/
+│   ├── app.py                  # Flask Web UI proxying to Backend
+│   ├── Dockerfile              # Python 3.12-slim container image
+│   ├── requirements.txt        # Frontend dependencies (Flask, requests, gunicorn)
+│   └── templates/
+│       └── index.html          # Responsive weather search interface
+├── helm/
+│   └── skywatch/
+│       ├── Chart.yaml          # Helm chart metadata (v0.1.0)
+│       ├── values.yaml         # Configurable parameters (images, replicas, ingress)
+│       └── templates/          # Kubernetes manifests (deployments, services, ingress)
+├── terraform/
+│   ├── versions.tf             # Terraform & provider constraints (helm, kubernetes)
+│   ├── provider.tf             # Kubernetes & Helm provider configurations
+│   ├── argocd.tf               # ArgoCD namespace & Helm release
+│   └── application.tf          # SkyWatch ArgoCD application manifest
+└── rendered.yaml               # Static rendered snapshot of Helm chart
 ```
 
 ---
 
-# 1. Clone Repository
+## Prerequisites
+
+Ensure the following tools are installed on your workstation:
+
+* **Multipass** (`multipass version`)
+* **Git** (`git --version`)
+* **Docker** (`docker --version`)
+* **kubectl** (`kubectl version --client`)
+* **Helm 3** (`helm version`)
+* **Ansible** (`ansible --version`) & **Python 3** (`python3 --version`)
+* **Terraform** (`terraform version` >= 1.5)
+
+---
+
+## 1. Local Development (Without Kubernetes)
+
+To test the application locally without deploying a full Kubernetes cluster:
+
+### Run with Python
+
+1. **Start Backend**:
+   ```bash
+   cd backend
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   python app.py
+   ```
+   *Backend runs on `http://localhost:5000`.*
+
+2. **Start Frontend** (in a separate terminal):
+   ```bash
+   cd frontend
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   export BACKEND_URL="http://localhost:5000"  # On Windows: $env:BACKEND_URL="http://localhost:5000"
+   python app.py
+   ```
+   *Frontend UI is available at `http://localhost:8080`.*
+
+### Run with Docker
 
 ```bash
-git clone https://github.com/boofinka/skywatch.git
+docker network create skywatch-net
 
-cd skywatch
+docker build -t skywatch-backend:local ./backend
+docker run -d --name skywatch-backend --network skywatch-net -p 5000:5000 skywatch-backend:local
+
+docker build -t skywatch-frontend:local ./frontend
+docker run -d --name skywatch-frontend --network skywatch-net -p 8080:8080 -e BACKEND_URL="http://skywatch-backend:5000" skywatch-frontend:local
 ```
 
 ---
 
-# 2. Provision Infrastructure
+## 2. Infrastructure Setup (Multipass VMs)
 
-## Create Virtual Machines
+SkyWatch runs on a 3-node K3s cluster. Launch the virtual machines using Multipass:
 
-Three Ubuntu VMs are required:
-
-| VM | Purpose |
-|----|----------|
-| skywatch-cp | K3s Control Plane |
-| skywatch-worker1 | Worker |
-| skywatch-worker2 | Worker |
-
-Example using Multipass:
+| VM Name | Role | Specification |
+|---------|------|---------------|
+| `skywatch-cp` | K3s Control Plane | 2 CPU, 2 GB RAM, 10 GB Disk |
+| `skywatch-worker1` | K3s Worker 1 | 1 CPU, 1.5 GB RAM, 10 GB Disk |
+| `skywatch-worker2` | K3s Worker 2 | 1 CPU, 1.5 GB RAM, 10 GB Disk |
 
 ```bash
-multipass launch 22.04 --name skywatch-cp
-multipass launch 22.04 --name skywatch-worker1
-multipass launch 22.04 --name skywatch-worker2
+multipass launch 22.04 --name skywatch-cp --cpus 2 --memory 2G --disk 10G
+multipass launch 22.04 --name skywatch-worker1 --cpus 1 --memory 1.5G --disk 10G
+multipass launch 22.04 --name skywatch-worker2 --cpus 1 --memory 1.5G --disk 10G
 ```
 
-Retrieve the IP addresses:
-
+Verify that all three instances are running:
 ```bash
 multipass list
 ```
 
 ---
 
-# 3. Configure Ansible Inventory
+## 3. SSH Key Authorization
 
-Edit:
+To allow Ansible passwordless access into the VMs:
 
-```text
-ansible/inventories/hosts.yml
-```
+```bash
+# Generate key if you do not already have one
+test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
 
-Example:
-
-```yaml
-all:
-  children:
-    control:
-      hosts:
-        skywatch-cp:
-          ansible_host: <CONTROL_PLANE_IP>
-
-    workers:
-      hosts:
-        skywatch-worker1:
-          ansible_host: <WORKER1_IP>
-
-        skywatch-worker2:
-          ansible_host: <WORKER2_IP>
+# Authorize your public key across all Multipass instances
+PUBKEY=$(cat ~/.ssh/id_rsa.pub)
+for vm in skywatch-cp skywatch-worker1 skywatch-worker2; do
+  multipass exec "$vm" -- bash -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$PUBKEY' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+done
 ```
 
 ---
 
-# 4. Deploy K3s Cluster
+## 4. Automated Provisioning with Dynamic Ansible Inventory
 
-Run:
+SkyWatch uses **dynamic inventory discovery** via [`ansible/inventories/multipass.py`](ansible/inventories/multipass.py).
+
+### How Dynamic Inventory Works
+* The script executes `multipass list --format json` directly.
+* Resolves VM IPv4 addresses on the fly without any manual `hosts` or `.ini` edits.
+* Dynamically assigns `skywatch-cp` to `k3s_server` and `skywatch-worker*` to `k3s_agents`.
+* K3s server generates its own random cluster token on install; Ansible reads it dynamically from `/var/lib/rancher/k3s/server/node-token` and passes it to worker nodes at runtime.
+
+### Test the Dynamic Inventory
 
 ```bash
 cd ansible
-
-ansible-playbook \
-  -i inventories/multipass.py \
-  playbooks/site.yml
+python3 inventories/multipass.py
 ```
+*(or via Ansible: `ansible-inventory --list`)*
 
-The playbook:
+### Run the Playbook
 
-- installs K3s server
-- installs K3s agents
-- joins workers to cluster
-- uses pinned K3s version:
-
-```yaml
-k3s_version: v1.31.4+k3s1
-```
-
-### Dynamic Inventory
-
-The project uses a custom Ansible dynamic inventory:
-
-```text
-ansible/inventories/multipass.py
-```
-
-Instead of maintaining static host IP addresses in an inventory file, the script queries Multipass directly:
+Because [`ansible/ansible.cfg`](ansible/ansible.cfg) already specifies `inventory = inventories/multipass.py`, simply execute:
 
 ```bash
-multipass list --format json
-```
-
-and automatically generates:
-
-- k3s_server group
-- k3s_agents group
-- host variables
-- VM IP addresses
-
-This eliminates inventory drift and removes the need to manually update IP addresses when VMs are recreated.
-
----
-
-# 5. Configure kubectl
-
-Copy kubeconfig from the control plane:
-
-```bash
-scp ubuntu@<CONTROL_PLANE_IP>:/etc/rancher/k3s/k3s.yaml ~/.kube/config
-```
-
-Update server address if required.
-
-Verify:
-
-```bash
-kubectl get nodes
-```
-
-Expected:
-
-```text
-skywatch-cp
-skywatch-worker1
-skywatch-worker2
-```
-
-All nodes should show:
-
-```text
-Ready
+cd ansible
+ansible-playbook playbooks/site.yml
 ```
 
 ---
 
-# 6. Deploy SkyWatch Using Helm
+## 5. Configure `kubectl` Remote Access
 
-Move to project root:
+1. Retrieve the kubeconfig directly from `skywatch-cp` via Multipass:
+   ```bash
+   multipass exec skywatch-cp -- sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config
+   chmod 600 ~/.kube/config
+   ```
+
+2. Retrieve the dynamically assigned IP of `skywatch-cp`:
+   ```bash
+   CP_IP=$(multipass info skywatch-cp --format json | grep -oE '172\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+   echo "Control Plane IP: $CP_IP"
+   ```
+
+3. Replace `https://127.0.0.1:6443` inside `~/.kube/config` with `https://$CP_IP:6443`:
+   ```bash
+   sed -i "s|https://127.0.0.1:6443|https://${CP_IP}:6443|g" ~/.kube/config
+   ```
+
+4. Verify cluster status:
+   ```bash
+   kubectl get nodes -o wide
+   ```
+
+   **Expected Output**:
+   ```text
+   NAME               STATUS   ROLES                  AGE   VERSION
+   skywatch-cp        Ready    control-plane,master   5m    v1.31.4+k3s1
+   skywatch-worker1   Ready    <none>                 4m    v1.31.4+k3s1
+   skywatch-worker2   Ready    <none>                 4m    v1.31.4+k3s1
+   ```
+
+---
+
+## 6. Deploy SkyWatch via Helm
+
+The Helm chart packages the frontend, backend, services, configmaps, and Traefik ingress.
+
+> [!NOTE]
+> The Helm deployment enforces `nodeAffinity` targeting worker nodes (excluding the `control-plane` role). Pods will schedule onto `skywatch-worker1` and `skywatch-worker2`.
 
 ```bash
-cd ~/projects/skywatch
+helm upgrade --install skywatch ./helm/skywatch
 ```
 
-Deploy:
-
+Verify deployment:
 ```bash
-helm upgrade \
-  --install skywatch \
-  ./helm/skywatch
-```
-
-Verify:
-
-```bash
-kubectl get pods
+kubectl get pods -l 'app in (skywatch-frontend, skywatch-backend)' -o wide
+kubectl get svc -l 'app in (skywatch-frontend, skywatch-backend)'
+kubectl get ingress skywatch-ingress
 ```
 
 ---
 
-# 7. Access the Application
+## 7. Accessing SkyWatch
 
-Verify ingress:
+### Configure Local DNS
 
-```bash
-kubectl get ingress
-```
+Map `skywatch.local` and `argocd.local` to the dynamically assigned IP of `skywatch-cp`:
 
-Expected host:
-
-```text
-skywatch.local
-```
-
-Add DNS mapping:
-
-Windows:
+* **Linux / macOS**: `/etc/hosts`
+* **Windows**: `C:\Windows\System32\drivers\etc\hosts`
 
 ```text
-C:\Windows\System32\drivers\etc\hosts
+<CP_IP> skywatch.local
+<CP_IP> argocd.local
 ```
 
-Linux:
+### Open the Application
 
-```bash
-/etc/hosts
-```
-
-Add:
-
-```text
-<CONTROL_PLANE_IP> skywatch.local
-```
-
-Open:
-
+Open your browser and navigate to:
 ```text
 http://skywatch.local
 ```
 
 ---
 
-# 8. GitHub Container Registry
+## 8. CI/CD Pipeline (GitHub Actions & GHCR)
 
-Images are published to:
+Workflow file: [`.github/workflows/build.yml`](.github/workflows/build.yml)
 
-```text
-ghcr.io/boofinka/skywatch-frontend
-ghcr.io/boofinka/skywatch-backend
-```
+### Stages
 
-Tagged using:
-
-```text
-<git commit sha>
-```
-
-Example:
-
-```text
-ghcr.io/boofinka/skywatch-backend:8fd40fd...
-```
+1. **Trigger**: Pushes to branch `main` (skips if commit contains `[skip ci]`).
+2. **Lint**: Runs `flake8 backend` and `flake8 frontend`.
+3. **Build & Push**: Builds and publishes container images to GitHub Container Registry:
+   * `ghcr.io/boofinka/skywatch-backend:<git-sha>`
+   * `ghcr.io/boofinka/skywatch-frontend:<git-sha>`
+4. **GitOps Tag Update**: Modifies image tags in `helm/skywatch/values.yaml` using `yq`.
+5. **Auto-Commit**: Commits and pushes the updated `values.yaml` back with `[skip ci]`.
 
 ---
 
-# 9. Continuous Integration
+## 9. Continuous Delivery with ArgoCD
 
-Workflow file:
+ArgoCD continuously monitors the repository and synchronizes state to the cluster.
 
-```text
-.github/workflows/build.yml
-```
-
-Pipeline executes on every push to:
-
-```text
-main
-```
-
-Pipeline stages:
-
-1. Checkout repository
-2. Lint application code
-3. Build frontend image
-4. Build backend image
-5. Push to GHCR
-6. Update Helm image tags
-7. Commit updated values.yaml
-8. Prevent CI loop using `[skip ci]`
-
----
-
-# 10. Verify CI/CD
-
-Push:
-
-```bash
-git push origin main
-```
-
-Verify in GitHub:
-
-```text
-Actions
-```
-
-Successful pipeline stages:
-
-```text
-Lint backend
-Lint frontend
-Build backend
-Push backend
-Build frontend
-Push frontend
-Update Helm image tags
-```
-
----
-
-# 11. Install ArgoCD
-
-Create namespace:
+### Install ArgoCD
 
 ```bash
 kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
-Install ArgoCD:
-
+Wait until the ArgoCD pods are ready:
 ```bash
-kubectl apply -n argocd \
--f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd --timeout=300s
 ```
 
-Verify:
+### Expose ArgoCD Web UI
 
+Deploy Traefik Ingress for ArgoCD:
 ```bash
-kubectl get pods -n argocd
+kubectl apply -f argocd/argocd-ingress.yaml
 ```
 
-All pods should reach:
+Retrieve the initial `admin` password:
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+```
 
+Access ArgoCD at:
 ```text
-Running
+http://argocd.local
 ```
 
----
+### Deploy the SkyWatch ArgoCD Application
 
-# 12. Create ArgoCD Application
-
-Apply:
-
+Apply the application manifest:
 ```bash
 kubectl apply -f argocd/application.yaml
 ```
 
-Verify:
-
+Verify application status:
 ```bash
-kubectl get applications -n argocd
-```
-
-Expected:
-
-```text
-skywatch
+kubectl get application -n argocd skywatch
 ```
 
 ---
 
-# 13. Enable Automated GitOps
+## 10. Alternative: Bootstrap with Terraform
 
-ArgoCD Application includes:
-
-```yaml
-syncPolicy:
-  automated:
-    prune: true
-    selfHeal: true
-```
-
-Behavior:
-
-```text
-Git Push
-    ↓
-GitHub Actions
-    ↓
-New Images
-    ↓
-values.yaml Updated
-    ↓
-ArgoCD Detects Change
-    ↓
-Automatic Deployment
-```
-
----
-
-# 14. Terraform Bonus
-
-Terraform can bootstrap GitOps resources.
-
-Directory:
-
-```text
-terraform/
-├── versions.tf
-├── provider.tf
-├── argocd.tf
-└── application.tf
-```
-
-Initialize:
+The `terraform/` directory provides an Infrastructure as Code bootstrap for ArgoCD:
 
 ```bash
 cd terraform
-
 terraform init
-```
-
-Validate:
-
-```bash
-terraform validate
-```
-
-Preview resources:
-
-```bash
 terraform plan
+terraform apply
 ```
 
 Terraform manages:
-
-- ArgoCD namespace
-- ArgoCD Helm release
-- ArgoCD Application
-
----
-
-# Verification Checklist
-
-## Application
-
-```bash
-curl http://skywatch.local
-```
-
-Frontend loads successfully.
+* Creation of the `argocd` namespace
+* ArgoCD Helm release deployment
+* The `skywatch` ArgoCD `Application` resource
 
 ---
 
-## Backend Health
+## 11. Verification & Health Checks
 
+### Backend Health Check
 ```bash
-kubectl port-forward svc/skywatch-backend 5000:5000
-```
-
-```bash
+kubectl port-forward svc/skywatch-backend 5000:5000 &
 curl http://localhost:5000/health
 ```
+```json
+{"status": "ok"}
+```
 
-Expected:
-
+### Backend Weather API Query
+```bash
+curl "http://localhost:5000/weather?city=Tel%20Aviv"
+```
 ```json
 {
-  "status": "ok"
+  "city": "Tel Aviv",
+  "temperature": 23.4,
+  "windspeed": 12.1
 }
 ```
 
----
-
-## Frontend Health
-
+### Frontend Health Check
 ```bash
-kubectl port-forward deployment/skywatch-frontend 8080:8080
-```
-
-```bash
+kubectl port-forward svc/skywatch-frontend 8080:80 &
 curl http://localhost:8080/health
 ```
-
-Expected:
-
 ```json
-{
-  "status": "healthy"
-}
+{"status": "healthy"}
 ```
 
 ---
 
-## Kubernetes Pods
+## 12. Troubleshooting
 
-```bash
-kubectl get pods -A -o wide
-```
+### 1. `multipass.py` Fails with Exit Status 2 or Command Not Found
+* **Cause**: On Windows WSL, Multipass CLI is called as `multipass.exe` on the host, whereas native Linux calls `multipass`.
+* **Resolution**: The updated [`multipass.py`](ansible/inventories/multipass.py) checks both `multipass.exe` and `multipass` via `shutil.which()`. Ensure Multipass is running and accessible from your terminal (`multipass list`).
 
-Verify:
+### 2. Pods Stuck in `Pending`
+* **Cause**: Node affinity requires non-control-plane nodes. If worker nodes haven't joined, pods cannot be scheduled.
+* **Resolution**: Verify `kubectl get nodes`. Ensure worker nodes are present and `Ready`.
 
-- frontend pods running
-- backend pods running
-- workloads scheduled on worker nodes
+### 3. Kubeconfig `connection refused` on Port 6443
+* **Cause**: K3s defaults the cluster address inside `k3s.yaml` to `127.0.0.1:6443`.
+* **Resolution**: Run `multipass info skywatch-cp` to get the VM's IP, then update `server: https://<CP_IP>:6443` in `~/.kube/config`.
 
----
-
-# Troubleshooting
-
-## ArgoCD Sync Status = Unknown
-
-Possible symptom:
-
-```text
-no route to host
-```
-
-Cause:
-
-```text
-Cross-node pod networking issue
-```
-
-Verify:
-
-```bash
-kubectl describe application skywatch -n argocd
-```
-
----
-
-## Images Not Pulling
-
-Check:
-
-```bash
-docker pull \
-ghcr.io/boofinka/skywatch-backend:<tag>
-```
-
-Verify image exists and is publicly accessible.
-
----
-
-## Pipeline Cannot Push
-
-Ensure:
-
-Repository Settings → Actions → Workflow Permissions
-
-```text
-Read and write permissions
-```
-
-is enabled.
-
----
-
-# Architecture
-
-```text
-GitHub
-   │
-   ▼
-GitHub Actions
-   │
-   ▼
-GitHub Container Registry
-   │
-   ▼
-Helm values.yaml
-   │
-   ▼
-ArgoCD
-   │
-   ▼
-K3s Cluster
-   │
-   ├── Frontend
-   └── Backend
-```
+### 4. Weather Provider Unavailable (503)
+* **Cause**: Egress DNS or HTTP connectivity from cluster pods to `https://api.open-meteo.com` blocked.
+* **Resolution**: Test pod outbound connectivity:
+  ```bash
+  kubectl run net-test --rm -it --image=curlimages/curl -- curl -I https://api.open-meteo.com
+  ```
