@@ -31,9 +31,15 @@ def index():
             else:
                 try:
                     data = response.json()
-                    error = data.get("error", f"HTTP {response.status_code} error")
+                    error = data.get(
+                        "error",
+                        f"HTTP {response.status_code} error"
+                    )
                 except ValueError:
-                    error = f"Service unavailable (HTTP {response.status_code})"
+                    error = (
+                        f"Service unavailable "
+                        f"(HTTP {response.status_code})"
+                    )
 
         except Exception as e:
             error = str(e)
